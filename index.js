@@ -1,6 +1,8 @@
-import { gql, ApolloServer, UserInputError } from 'apollo-server';
-import { v1 as uuid } from 'uuid';
-
+/* eslint-disable import/extensions */
+import { gql, ApolloServer } from 'apollo-server';
+import './db.js';
+import Person from './models/person.js';
+/*
 const persons = [
   {
     name: 'midu',
@@ -23,9 +25,14 @@ const persons = [
     city: 'tokyo',
     id: 'oiujb5ujb123',
   },
-];
+]; */
 
 const typeDefs = gql`
+  enum YesNo {
+    YES
+    NO 
+  }
+
   type Person {
     name: String!
     phone: String
@@ -43,7 +50,7 @@ const typeDefs = gql`
 
   type Query {
     personCount: Int!
-    allPersons: [Person]!
+    allPersons(phone: YesNo): [Person]!
     findPerson(name: String!): Person
   }
 
@@ -54,17 +61,24 @@ const typeDefs = gql`
       street: String!
       city: String!
     ): Person
+
+    editPhone(
+      name: String!
+      phone: String!
+    ): Person
   }
 `;
 
 const resolvers = {
   Query: {
-    personCount: () => persons.length,
-    allPersons: () => persons,
-    findPerson: (root, args) => {
-      const { name } = args;
-      return persons.find((person) => person.name === name);
+    personCount: async () => Person.collection.countDocuments(),
+    allPersons: async (root, args) => {
+      if (!args.phone) {
+        return Person.find({});
+      }
+      return Person.find({ phone: { $exists: args.phone === 'YES' } });
     },
+    findPerson: async (root, args) => Person.findOne({ name: args.name }),
   },
   Person: {
     address: (root) => `${root.street}, ${root.city}`,
@@ -74,15 +88,14 @@ const resolvers = {
     }),
   },
   Mutation: {
-    addPerson: (root, args) => {
-      if (persons.find((p) => p.name === args.name)) {
-        throw new UserInputError('The user is alredy registered', {
-          invalidArgs: args.name,
-        });
-      }
-      const person = { ...args, id: uuid() };
-      persons.push(person);
-      return person;
+    addPerson: async (root, args) => {
+      const person = new Person({ ...args });
+      return person.save();
+    },
+    editPhone: async (root, { name, phone }) => {
+      const person = await Person.findOne({ name });
+      person.phone = phone;
+      return person.save();
     },
   },
 };
