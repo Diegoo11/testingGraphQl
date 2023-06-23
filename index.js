@@ -88,14 +88,25 @@ const resolvers = {
     }),
   },
   Mutation: {
-    addPerson: async (root, args) => {
-      const person = new Person({ ...args });
-      return person.save();
+    addPerson: (root, args) => {
+      	const person = new Person({ ...args });
+	try {
+		return person.save();
+	} catch {
+		throw new Error("El usuario no se pudo registrar");
+	}
     },
     editPhone: async (root, { name, phone }) => {
-      const person = await Person.findOne({ name });
-      person.phone = phone;
-      return person.save();
+      	const person = await Person.findOne({ name });
+      if (!person) {
+        throw new Error('usuario equivocado');
+      }
+      	person.phone = phone;
+      try {
+        return await person.save();
+      	} catch {
+        throw new Error('No se pudo guardar al Person');
+      }
     },
   },
 };
