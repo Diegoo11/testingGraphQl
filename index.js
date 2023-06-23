@@ -1,5 +1,5 @@
 /* eslint-disable import/extensions */
-import { gql, ApolloServer } from 'apollo-server';
+import { gql, ApolloServer, UserInputError } from 'apollo-server';
 import './db.js';
 import Person from './models/person.js';
 /*
@@ -89,23 +89,23 @@ const resolvers = {
   },
   Mutation: {
     addPerson: (root, args) => {
-      	const person = new Person({ ...args });
-	try {
-		return person.save();
-	} catch {
-		throw new Error("El usuario no se pudo registrar");
-	}
+      const person = new Person({ ...args });
+      try {
+        return person.save();
+      } catch {
+        throw new UserInputError('El usuario no se pudo registrar');
+      }
     },
     editPhone: async (root, { name, phone }) => {
-      	const person = await Person.findOne({ name });
+      const person = await Person.findOne({ name });
       if (!person) {
-        throw new Error('usuario equivocado');
+        throw new UserInputError('usuario equivocado');
       }
-      	person.phone = phone;
+      person.phone = phone;
       try {
         return await person.save();
-      	} catch {
-        throw new Error('No se pudo guardar al Person');
+      } catch {
+        throw new UserInputError('No se pudo guardar al Person');
       }
     },
   },
@@ -118,4 +118,5 @@ const server = new ApolloServer({
 
 server
   .listen()
+  // eslint-disable-next-line no-console
   .then(({ url }) => console.log(`Server is running on ${url}`));
