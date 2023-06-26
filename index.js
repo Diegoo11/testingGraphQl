@@ -1,16 +1,29 @@
 /* eslint-disable no-underscore-dangle */
 /* eslint-disable import/extensions */
-import {
-  gql, ApolloServer, UserInputError, AuthenticationError,
-} from 'apollo-server';
+// import {
+//  gql, ApolloServer, UserInputError, AuthenticationError,
+// } from 'apollo-server';
+import { ApolloServer } from '@apollo/server';
+import { startStandaloneServer } from '@apollo/server/standalone';
+import { ApolloServerErrorCode } from '@apollo/server/errors';
 import './db.js';
 import jwt from 'jsonwebtoken';
+import { GraphQLError } from 'graphql';
 import Person from './models/person.js';
 import User from './models/User.js';
+/*
+const formatError = (formattedError, error) => {
+  console.log(error);
+  if (formatError.extensions.code === ApolloServerErrorCode.BAD_USER_INPUT) {
+    return { ...formattedError, message: 'El usuario no se pudo registrar' };
+  }
+
+  return formattedError;
+}; */
 
 const SECRET = 'MI_PALABRA_SECRETA_DE_JSONWEBTOKEN';
 
-const typeDefs = gql`
+const typeDefs = `#graphql
   enum YesNo {
     YES
     NO 
@@ -98,43 +111,45 @@ const resolvers = {
   Mutation: {
     addPerson: async (root, args, context) => {
       const { currentUser } = context;
-      if (!currentUser) throw new AuthenticationError('Not Authenticated');
+      if (!currentUser) throw new Error('Not Authenticated');
       const person = new Person({ ...args });
       try {
         await person.save();
         currentUser.friends = currentUser.friends.concat(person);
         currentUser.save();
       } catch {
-        throw new UserInputError('El usuario no se pudo registrar');
+        throw new Error('El usuario no se pudo registrar');
       }
       return person;
     },
     editPhone: async (root, { name, phone }) => {
       const person = await Person.findOne({ name });
       if (!person) {
-        throw new UserInputError('usuario equivocado');
+        throw new Error('usuario equivocado');
       }
       person.phone = phone;
       try {
         return await person.save();
       } catch {
-        throw new UserInputError('No se pudo guardar al Person');
+        throw new Error('No se pudo guardar al Person');
       }
     },
-    createUser: (root, args) => {
+    createUser: async (root, args) => {
       const user = new User({ username: args.username });
-      return user.save().catch((error) => {
-        throw new UserInputError(
-          error.message,
-          { invalidArgs: args },
-        );
-      });
+      try { await user.save(); } catch {
+        throw new GraphQLError(' hola mundo', {
+          extensions: {
+            code: 'MIN_LENGTH_5_CARACTERES',
+          },
+        });
+      }
+      return user;
     },
     loginUser: async (root, { username, password }) => {
       const user = await User.findOne({ username });
 
       if (!user || password !== 'psw') {
-        throw new AuthenticationError('wrong credentials');
+        throw new Error('wrong credentials');
       }
 
       const userForToken = {
@@ -148,16 +163,14 @@ const resolvers = {
     },
     addAsFriend: async (root, args, context) => {
       const { currentUser } = context;
-      if (!currentUser) throw new AuthenticationError('Not Authenticated');
+      if (!currentUser) throw new Error('Not Authenticated');
 
       const person = await Person.findOne({ name: args.name });
       const friendVerify = (prs) => !currentUser.friends
         .map((p) => JSON.stringify(p._id))
         .includes(JSON.stringify(prs._id));
       if (!person || !friendVerify(person)) {
-        throw new UserInputError('Usuario no encontrado o ya es un amigo', {
-          invalidArgs: args,
-        });
+        throw new Error('Usuario no encontrado o ya es un amigo');
       }
       currentUser.friends = currentUser.friends.concat(person);
       await currentUser.save();
@@ -169,6 +182,7 @@ const resolvers = {
 const server = new ApolloServer({
   typeDefs,
   resolvers,
+  // formatError,
   // eslint-disable-next-line consistent-return
   context: async ({ req }) => {
     const auth = req ? req.headers.authorization : null;
@@ -176,7 +190,7 @@ const server = new ApolloServer({
       const tk = auth.substring(7);
       const decodedToken = jwt.decode(tk, SECRET);
 
-      if (!decodedToken) throw new AuthenticationError('Wrong credentials');
+      if (!decodedToken) throw new Error('Wrong credentials');
 
       const { id } = decodedToken;
 
@@ -186,6 +200,8 @@ const server = new ApolloServer({
   },
 });
 
-server
-  .listen()
-  .then(({ url }) => console.log(`Server is running on ${url}`));
+const { url } = await startStandaloneServer(server, {
+  listen: { port: 4000 },
+});
+
+console.log(`Server ready in the port${url}`);
