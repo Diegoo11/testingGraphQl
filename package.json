@@ -18,8 +18,9 @@
   },
   "homepage": "https://github.com/Diegoo11/testingGraphQlhttps:#readme",
   "dependencies": {
+    "@apollo/server": "^4.7.4",
     "apollo-server": "3.12.0",
-    "graphql": "16.6.0",
+    "graphql": "^16.6.0",
     "jsonwebtoken": "9.0.0",
     "mongoose": "7.3.1",
     "mongoose-unique-validator": "4.0.0",
