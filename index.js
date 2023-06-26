@@ -4,22 +4,18 @@
 //  gql, ApolloServer, UserInputError, AuthenticationError,
 // } from 'apollo-server';
 import { ApolloServer } from '@apollo/server';
-import { startStandaloneServer } from '@apollo/server/standalone';
-import { ApolloServerErrorCode } from '@apollo/server/errors';
+// import { startStandaloneServer } from '@apollo/server/standalone';
 import './db.js';
 import jwt from 'jsonwebtoken';
 import { GraphQLError } from 'graphql';
+import express from 'express';
+import cors from 'cors';
+import { expressMiddleware } from '@apollo/server/express4';
+import bodyParser from 'body-parser';
 import Person from './models/person.js';
 import User from './models/User.js';
-/*
-const formatError = (formattedError, error) => {
-  console.log(error);
-  if (formatError.extensions.code === ApolloServerErrorCode.BAD_USER_INPUT) {
-    return { ...formattedError, message: 'El usuario no se pudo registrar' };
-  }
 
-  return formattedError;
-}; */
+const app = express();
 
 const SECRET = 'MI_PALABRA_SECRETA_DE_JSONWEBTOKEN';
 
@@ -111,35 +107,56 @@ const resolvers = {
   Mutation: {
     addPerson: async (root, args, context) => {
       const { currentUser } = context;
-      if (!currentUser) throw new Error('Not Authenticated');
+      if (!currentUser) {
+        throw new GraphQLError('Not Authenticated', {
+          extensions: {
+            code: 'AUTHENTICATION_ERROR',
+          },
+        });
+      }
       const person = new Person({ ...args });
       try {
         await person.save();
         currentUser.friends = currentUser.friends.concat(person);
         currentUser.save();
-      } catch {
-        throw new Error('El usuario no se pudo registrar');
+      } catch (err) {
+        throw new GraphQLError(`El usuario no se pudo registrar; ${err.message}`, {
+          extensions: {
+            code: 'USER_INPUT_ERROR',
+            invalidArgs: args,
+          },
+        });
       }
       return person;
     },
     editPhone: async (root, { name, phone }) => {
       const person = await Person.findOne({ name });
       if (!person) {
-        throw new Error('usuario equivocado');
+        throw new GraphQLError('El usuario no existe', {
+          extensions: {
+            code: 'USER_INPUT_ERROR',
+            invalidArgs: name,
+          },
+        });
       }
       person.phone = phone;
       try {
         return await person.save();
       } catch {
-        throw new Error('No se pudo guardar al Person');
+        throw new GraphQLError('No se pudo guardar al Person', {
+          extensions: {
+            code: 'USER_INPUT_ERROR',
+          },
+        });
       }
     },
     createUser: async (root, args) => {
       const user = new User({ username: args.username });
-      try { await user.save(); } catch {
-        throw new GraphQLError(' hola mundo', {
+      try { await user.save(); } catch (err) {
+        throw new GraphQLError(err.message, {
           extensions: {
             code: 'MIN_LENGTH_5_CARACTERES',
+            invalidArgs: args.username,
           },
         });
       }
@@ -163,7 +180,14 @@ const resolvers = {
     },
     addAsFriend: async (root, args, context) => {
       const { currentUser } = context;
-      if (!currentUser) throw new Error('Not Authenticated');
+      if (!currentUser) {
+        throw new GraphQLError('Not Authenticated', {
+          extensions: {
+            code: 'AUTHENTICATION_ERROR',
+            http: { status: 401 },
+          },
+        });
+      }
 
       const person = await Person.findOne({ name: args.name });
       const friendVerify = (prs) => !currentUser.friends
@@ -182,6 +206,10 @@ const resolvers = {
 const server = new ApolloServer({
   typeDefs,
   resolvers,
+});
+/*
+const { url } = await startStandaloneServer(server, {
+  listen: { port: 4000 },
   // formatError,
   // eslint-disable-next-line consistent-return
   context: async ({ req }) => {
@@ -190,7 +218,13 @@ const server = new ApolloServer({
       const tk = auth.substring(7);
       const decodedToken = jwt.decode(tk, SECRET);
 
-      if (!decodedToken) throw new Error('Wrong credentials');
+      if (!decodedToken) {
+        throw new GraphQLError('Not Authenticated', {
+          extensions: {
+            code: 'AUTHENTICATION_ERROR',
+          },
+        });
+      }
 
       const { id } = decodedToken;
 
@@ -199,9 +233,37 @@ const server = new ApolloServer({
     }
   },
 });
+*/
 
-const { url } = await startStandaloneServer(server, {
-  listen: { port: 4000 },
-});
+await server.start();
 
-console.log(`Server ready in the port${url}`);
+app.use(
+  '/',
+  bodyParser.json(),
+  cors(),
+  expressMiddleware(server, {
+    // eslint-disable-next-line consistent-return
+    context: async ({ req }) => {
+      const auth = req ? req.headers.authorization : null;
+      if (auth && auth.toLowerCase().startsWith('bearer ')) {
+        const tk = auth.substring(7);
+        const decodedToken = jwt.decode(tk, SECRET);
+
+        if (!decodedToken) {
+          throw new GraphQLError('Not Authenticated', {
+            extensions: {
+              code: 'AUTHENTICATION_ERROR',
+            },
+          });
+        }
+
+        const { id } = decodedToken;
+
+        const currentUser = await User.findById(id).populate('friends');
+        return { currentUser };
+      }
+    },
+  }),
+);
+
+app.listen(5000, () => console.log('app listening on port 5000'));
